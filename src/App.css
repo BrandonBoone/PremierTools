@@ -1,0 +1,21 @@
+.commissionReports-enter {
+  opacity: 0.01;
+}
+
+.commissionReports-enter.commissionReports-enter-active {
+  opacity: 1;
+  transition: opacity 500ms ease-in;
+}
+
+.commissionReports-appear {
+  opacity: 0.01;
+}
+
+.commissionReports-appear.commissionReports-appear-active {
+  opacity: 1;
+  transition: opacity 500ms ease-in;
+}
+
+.commissionReports-leave {
+  display:none;
+}
