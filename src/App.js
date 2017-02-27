@@ -9,6 +9,7 @@ import { getWidth } from './redux/browser/selectors';
 import Ripple from './ripple.svg';
 import ReactCSSTransitionGroup from 'react-addons-css-transition-group';
 import './App.css';
+import floor from 'lodash/floor';
 
 const style = {
   display: 'flex',
@@ -17,21 +18,41 @@ const style = {
   width: '100%',
 };
 
-const App = ({ isLoading, width }) => (
+const formatter = new Intl.NumberFormat('en-US', {
+  style: 'currency',
+  currency: 'USD',
+  minimumFractionDigits: 2,
+});
+
+const App = ({
+  isLoading,
+  width,
+  errorMessage,
+  totalRetail,
+  totalCommission,
+  totalCommissionVolume,
+  totalBonusPaid
+}) => (
   <div
+    className='commissionReports'
     style={style}
   >
     <div>
       <CVDateRangePicker />
-      <RunButton />
     </div>
     <ReactCSSTransitionGroup
       transitionName="commissionReports"
       transitionAppear={true}
-      transitionAppearTimeout={500}
-      transitionEnterTimeout={500}
+      transitionAppearTimeout={300}
+      transitionEnterTimeout={300}
       transitionLeaveTimeout={300}
     >
+    {errorMessage ? 
+      <span style={{color:'red'}}>
+        Oops! Something went terribly wrong. Let us known&nbsp;
+        <a href="https://github.com/BrandonBoone/PremierTools/issues">here</a>
+      </span> : null
+    }
     {isLoading ? 
       <div 
         style={{
@@ -57,6 +78,29 @@ const App = ({ isLoading, width }) => (
         <p>
           <i>Only "Home Shows" and "Catalog Orders" are counted as parties</i>
         </p>
+        <p style={{ fontSize: '1.3em' }}><strong>{formatter.format(totalCommission.total + totalBonusPaid)}</strong>: This is what your downline made you.</p>
+
+        <h5>Breakdown</h5>
+        <table>
+          <tbody>
+            {Object.keys(totalCommissionVolume.percentages).map(next =>
+              <tr>
+                <td><abbr title="commission volume">CV</abbr></td>
+                <td>{formatter.format(floor(totalCommissionVolume.percentages[next] * (parseFloat(next,10)/100),2))}</td>
+                <td>({next}% of {formatter.format(totalCommissionVolume.percentages[next])})</td>
+              </tr>
+            )}
+            <tr>
+              <td>Bonus</td><td>{formatter.format(totalBonusPaid)}</td><td></td>
+            </tr>
+            <tr>
+              <td>Total Commission</td><td><strong>{formatter.format(totalCommission.total + totalBonusPaid)}</strong></td><td></td>
+            </tr>
+            <tr>
+              <td><i>Total Retail</i></td><td><i>{formatter.format(totalRetail)}</i></td><td></td>
+            </tr>
+          </tbody>
+        </table>
         <MonthlyCommissionsAndParties />
       </div>
     }
@@ -69,5 +113,10 @@ export default connect(
   state => ({
     isLoading: state.cvdata.loading,
     width: getWidth(state),
+    errorMessage: state.cvdata.errorMessage,
+    totalCommission: state.cvdata.totalCommission,
+    totalRetail: state.cvdata.totalRetail,
+    totalCommissionVolume: state.cvdata.totalCommissionVolume,
+    totalBonusPaid: state.cvdata.totalBonusPaid,
   })
 )(App);

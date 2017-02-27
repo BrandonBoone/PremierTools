@@ -13,7 +13,11 @@ export const cvDataFailed = (errorMessage) => ({
   errorMessage,
 });
 
-export const cvDataSuccess = (months) => ({
+export const cvDataSuccess = ({ months, totalCommission, totalRetail, commissionVolume, totalBonusPaid }) => ({
   type: CVDATA_SUCCESS,
   months,
+  totalCommission,
+  totalRetail,
+  commissionVolume,
+  totalBonusPaid,
 });

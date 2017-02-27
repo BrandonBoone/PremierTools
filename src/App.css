@@ -19,3 +19,11 @@
 .commissionReports-leave {
   display:none;
 }
+
+.commissionReports td {
+  padding: 0 4px;
+}
+
+.commissionReports td:nth-child(2) {
+  text-align: right;
+}

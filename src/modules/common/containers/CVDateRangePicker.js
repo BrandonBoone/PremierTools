@@ -3,6 +3,9 @@ import DateRangePicker from '../components/DateRangePicker.jsx';
 import {
   dateRangeChanged,
 } from '../../../redux/dateRange/actions';
+import {
+  cvDataRequested,
+} from '../../../redux/cvdata/actions';
 
 const mapStateToProps = state => ({
   from: state.dateRange.from,
@@ -14,6 +17,7 @@ const CVDateRangePicker = connect(
   mapStateToProps,
   {
     dateChanged: dateRangeChanged,
+    onDismiss: cvDataRequested,
   }
 )(DateRangePicker);
 

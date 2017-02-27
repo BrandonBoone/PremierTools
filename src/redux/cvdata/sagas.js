@@ -15,10 +15,15 @@ import {
 } from '../jeweler/reducer';
 import csv from 'csv';
 import getMonth from 'date-fns/get_month';
+import {
+  getCachedData,
+  setCachedData,
+} from './storage';
+import differenceInMonths from 'date-fns/difference_in_months';
+import round from 'lodash/round';
 
-function getData(startDate, endDate, endDate2, id) {
-  console.log(`https://opal.premierdesigns.com/reports/rwservlet?keyProd+report=cvcsvd.rdf+desformat=delimiteddata+delimiter=,+destype=cache+p_cust_no=${id}+p_begin_date=${startDate}+p_end_date=${endDate}+p_end_date2=${endDate2}`);
-  return new Promise((resolve, reject) => {
+const getData = (startDate, endDate, endDate2, id) =>
+  new Promise((resolve, reject) => {
     GM_xmlhttpRequest ({ // eslint-disable-line
       method: 'GET',
       url: `https://opal.premierdesigns.com/reports/rwservlet?keyProd+report=cvcsvd.rdf+desformat=delimiteddata+delimiter=,+destype=cache+p_cust_no=${id}+p_begin_date=${startDate}+p_end_date=${endDate}+p_end_date2=${endDate2}`,
@@ -30,20 +35,27 @@ function getData(startDate, endDate, endDate2, id) {
       onerror: () => reject()
     });
   });
-}
 
-function parse(csvData) {
-  return new Promise((resolve, reject) => {
-    csv.parse(csvData, (err, data) => {
+const parse = ({ raw, cache, key, shouldCache }) =>
+  new Promise((resolve, reject) => {
+    if (cache) {
+      resolve(cache);
+      return;
+    }
+
+    csv.parse(raw, (err, data) => {
       if (err) {
         reject(err);
+        return;
+      }
+      if(shouldCache) {
+        setCachedData(key, data);
       }
       resolve(data);
     });
   });
-}
 
-function transform(data) {
+const transform = data => {
   if(!data || data.length === 0){
     return null;
   }
@@ -66,26 +78,49 @@ const types = {
   NO_ORDERS: 0,
 }
 
-function computeJewelerData(data, jewelerId){
-  return data.reduce(function(prev, next) {
+const columns = {
+  commPaid: "COMM PAID",
+  commVolume: "COMM VOLUME",
+  totRetail: "TOT RETAIL",
+  formNo: "FORM NO.",
+  commLevel: "COMMISSION LEVEL",
+  type: "TYPE",
+  bonus: "BONUS%",
+  commPer: "COMM%",
+};
+
+const computeJewelerData = (data, jewelerId) =>
+  data.reduce(function(prev, next) {
     // Get the jeweler by name. If they have already been counted, then don't increment jewelerCount
     prev.jewelerCount += !prev[next.NAME] ? 1 : 0;
     // Init a new jeweler or copy the existing one.
     prev[next.NAME] = prev[next.NAME] || { totalProfit: 0, totalRetail: 0, parties: {}, counted: {} };
 
     // reference the jeweler
-    var jeweler = prev[next.NAME];
+    let jeweler = prev[next.NAME];
     // Get the month as a number
-    var month = getMonth(next.DATE) + 1;
+    let month = getMonth(next.DATE) + 1;
 
     // If the month hasn't been initialized yet. Set default values
     prev.month[month] = prev.month[month] || { retail: 0, newJewelers: 0, parties: 0 };
 
     // Get the commission paid
-    var commission = parseFloat(next["COMM PAID"], 10) || 0;
+    let commission = 0;
+    let bonus = 0;
+    let percentage = 0;
 
+    // bonus records are duplicate entries.
+    if (next[columns.bonus]) {
+      bonus = parseFloat(next[columns.commPaid], 10) || 0;
+    } else {
+      commission = parseFloat(next[columns.commPaid], 10) || 0;
+      percentage = parseFloat(next[columns.commPer], 10) || 0;
+    }
+
+    let commissionVolume = parseFloat(next[columns.commVolume], 10) || 0;
+    
     // var percentage = parseInt(next["COMM%"], 10) || 0;
-    var retail = parseFloat(next["TOT RETAIL"], 10) || 0;
+    let retail = parseFloat(next[columns.totRetail], 10) || 0;
 
     // Add the commission paid to the current retail for the current month
     prev.month[month].retail += commission;
@@ -100,9 +135,9 @@ function computeJewelerData(data, jewelerId){
     jeweler.totalRetail += retail;
     
     // Some items appear more then once. Make sure we're only counting parties one time.
-    if (!jeweler.counted[next["FORM NO."]]) {
+    if (!jeweler.counted[next[columns.formNo]]) {
         // Mark this entry as counted
-        jeweler.counted[next["FORM NO."]] = true;
+        jeweler.counted[next[columns.formNo]] = true;
 
         // Count the types of parties (entries) for the jeweler
         jeweler.parties[next.TYPE] = (jeweler.parties[next.TYPE] || 0) + 1;
@@ -115,64 +150,100 @@ function computeJewelerData(data, jewelerId){
     }
 
     // Increment the overall (total) commission going to the upline
-    prev.totalCommission += commission;
+    // prev.totalCommission += commission;
+    prev.totalCommission.total += commission;
+    prev.totalCommission.percentages[percentage] = round((prev.totalCommission.percentages[percentage] || 0) + commission, 2);
 
-    // Increment the total retail
-    prev.totalRetail += retail;
+
+
+    if(parseInt(next[columns.commLevel], 10) > 0 && commission != 0) { // eslint-disable-line eqeqeq
+      prev.commissionVolume.total += commissionVolume;
+      prev.commissionVolume.percentages[percentage] = round((prev.commissionVolume.percentages[percentage] || 0) + commissionVolume, 2);
+    }
+
+    if(parseInt(next[columns.commLevel], 10) > 0) {
+      // Increment the total retail
+      prev.totalRetail += retail;
+    }
+
+    prev.totalBonusPaid += bonus;
 
     return prev;
-  }, { totalCommission: 0, totalRetail: 0, month: { }, jewelerCount: 0 });
-}
+  }, { totalCommission: { total: 0, percentages: {}, }, totalBonusPaid: 0, commissionVolume: { total: 0, percentages: {}, }, totalRetail: 0, month: { }, jewelerCount: 0 });
 
-function round(value, decimals) {
-  return Number(Math.round(value+'e'+decimals)+'e-'+decimals);
-}
+const monthNames = {
+  1: 'Jan',
+  2: 'Feb',
+  3: 'Mar',
+  4: 'Apr',
+  5: 'May',
+  6: 'Jun',
+  7: 'Jul',
+  8: 'Aug',
+  9: 'Sep',
+  10: 'Oct',
+  11: 'Nov',
+  12: 'Dec'
+};
 
-function computeMonthData(data) {
-  return Object.keys(data.month).map(key => ({
-    month: getMonthName(key),
-    parties: data.month[key].parties,
-    retail: round(data.month[key].retail, 2),
+const computeMonthData = month => 
+  Object.keys(month).map(key => ({
+    month: monthNames[key],
+    parties: month[key].parties,
+    retail: round(month[key].retail, 2),
   }));
-}
 
-function getMonthName(number) {
-  return {
-      1: 'Jan',
-      2: 'Feb',
-      3: 'Mar',
-      4: 'Apr',
-      5: 'May',
-      6: 'Jun',
-      7: 'Jul',
-      8: 'Aug',
-      9: 'Sep',
-      10: 'Oct',
-      11: 'Nov',
-      12: 'Dec'
-  }[number];
-}
 
 // avoid pounding the premier server.
-// TODO: the delay's are being created at the same time, may need gradual escalation. 
-function* delayedCall(startDate, endDate, endDate2, id, time) {
-  yield call(delay, time);
-  return yield call(getData, startDate, endDate, endDate2, id);
+function initDelayedCall() {
+  let time = 50;
+  return function* ({ startDate, endDate, endDate2, id, key, shouldCache }) {
+    const cache = yield call(getCachedData, key);
+    if (cache) {
+      return {
+        cache,
+        key,
+        shouldCache,
+      };
+    } 
+    yield call(delay, time);
+    time += 500;
+    return {
+      raw: yield call(getData, startDate, endDate, endDate2, id),
+      key,
+      shouldCache,
+    };
+  }
 }
 
 function* getCvData() {
   try {
-    let time = 50; 
+    // get the jeweler's id
     const { id } = yield select(getJewelerId);
+    // get the date ranges for each report month
     const dates = yield select(getDates);
-    const results = yield dates.map(set => {
-      time += 50;
-      return call(delayedCall, set.startDate, set.endDate, set.endDate2, id, time);
+    // get the reports
+    const results = yield dates.map(({ startDate, endDate, endDate2 }) => {
+      const delayedCall = initDelayedCall();
+      const key = `id_${startDate}${endDate}${endDate2}${id}`;
+      const difference = differenceInMonths(new Date(), endDate);
+      // don't cache recent reports in case they change.
+      const shouldCache = difference >= 2;
+      return call(delayedCall, { startDate, endDate, endDate2, id, key, shouldCache });
     });
+    // parse the results
     const parsed = yield results.map(result => call(parse, result));
+    // convert to JSON
     const json = parsed.reduce((prev, next) => [...prev, ...transform(next)], []);
-    const jewelerData = computeJewelerData(json, id); 
-    yield put(cvDataSuccess(computeMonthData(jewelerData)));
+    // convert to chartable data.
+    const { month, totalCommission, totalRetail, commissionVolume, totalBonusPaid, } = computeJewelerData(json, id); 
+    yield put(cvDataSuccess({
+      months: computeMonthData(month),
+      totalCommission: totalCommission,
+      totalRetail: totalRetail,
+      commissionVolume: commissionVolume,
+      totalBonusPaid: totalBonusPaid,
+    }));
   } catch (e) {
     yield put(cvDataFailed(e.message));
   }

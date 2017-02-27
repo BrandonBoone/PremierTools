@@ -20,7 +20,7 @@ const style = {
   padding: '4px',
 };
 
-const DateRangePicker = ({title, from, to, dateChanged}) => {
+const DateRangePicker = ({title, from, to, dateChanged, onDismiss}) => {
   let picker = null;
   return (
     <div
@@ -35,11 +35,12 @@ const DateRangePicker = ({title, from, to, dateChanged}) => {
           range={{ from, to }}
           lang={pickerLang}
           theme="light"
+          onDismiss={onDismiss}
           onChange={(year, month, id) => { 
             dateChanged(year, month, id);
-            if (id > 0) {
-              picker.dismiss();
-            }
+            // if (id > 0) {
+              // picker.dismiss();
+            // }
           }}
         >
           <div onClick={() => picker.show()} style={style}>
